@@ -16,6 +16,24 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(os.getcwd())
 
 
+def silent_render(*args, **kwargs):
+  # redirect output to log file
+  logfile = 'blender_render.log'
+  open(logfile, 'a').close()
+  old = os.dup(1)
+  sys.stdout.flush()
+  os.close(1)
+  os.open(logfile, os.O_WRONLY)
+
+  # do the rendering
+  bpy.ops.render.render(*args, **kwargs)
+
+  # disable output redirection
+  os.close(1)
+  os.dup(old)
+  os.close(old)
+
+
 """
 Renders random scenes using Blender, each with with a random number of objects;
 each object has a random size, position, color, and shape. Objects will be
@@ -129,8 +147,8 @@ parser.add_argument('--date', default=dt.today().strftime("%m/%d/%Y"),
          "defaults to today's date")
 
 # Rendering options
-parser.add_argument('--use_gpu', default=0, type=int,
-    help="Setting --use_gpu 1 enables GPU-accelerated rendering using CUDA. " +
+parser.add_argument('--use_gpu', action="store_true",
+    help="Setting --use_gpu enables GPU-accelerated rendering using CUDA. " +
          "You must have an NVIDIA GPU with the CUDA toolkit installed for " +
          "to work.")
 parser.add_argument('--width', default=320, type=int,
@@ -159,6 +177,7 @@ parser.add_argument('--render_tile_size', default=256, type=int,
          "while larger tile sizes may be optimal for GPU-based rendering.")
 
 def main(args):
+  random.seed(123)
   print(args.__dict__)
   num_digits = 6
   prefix = '%s_%s_' % (args.filename_prefix, args.split)
@@ -242,23 +261,14 @@ def render_scene(args,
   render_args.resolution_percentage = 100
   render_args.tile_x = args.render_tile_size
   render_args.tile_y = args.render_tile_size
-  if args.use_gpu == 1:
-    print("Running on GPU")
+  if args.use_gpu:
     # Blender changed the API for enabling CUDA at some point
     if bpy.app.version < (2, 78, 0):
       bpy.context.user_preferences.system.compute_device_type = 'CUDA'
       bpy.context.user_preferences.system.compute_device = 'CUDA_0'
     else:
-      cycles_prefs = bpy.context.user_preferences.addons['cycles'].preferences
+      cycles_prefs = bpy.context.preferences.addons['cycles'].preferences
       cycles_prefs.compute_device_type = 'CUDA'
-      for scene in bpy.data.scenes:
-        scene.cycles.device = 'GPU'
-      # get_devices() to let Blender detect GPU device
-      bpy.context.preferences.addons["cycles"].preferences.get_devices()
-      print(bpy.context.preferences.addons["cycles"].preferences.compute_device_type)
-      for d in bpy.context.preferences.addons["cycles"].preferences.devices:
-          d["use"] = 1 # Using all devices, include GPU and CPU
-          print(d["name"], d["use"])
 
   # Some CYCLES-specific stuff
   bpy.data.worlds['World'].cycles.sample_as_light = True
@@ -266,8 +276,14 @@ def render_scene(args,
   bpy.context.scene.cycles.samples = args.render_num_samples
   bpy.context.scene.cycles.transparent_min_bounces = args.render_min_bounces
   bpy.context.scene.cycles.transparent_max_bounces = args.render_max_bounces
-  if args.use_gpu == 1:
+  if args.use_gpu:
     bpy.context.scene.cycles.device = 'GPU'
+    # get_devices() to let Blender detect GPU device
+    bpy.context.preferences.addons["cycles"].preferences.get_devices()
+    print(bpy.context.preferences.addons["cycles"].preferences.compute_device_type)
+    for d in bpy.context.preferences.addons["cycles"].preferences.devices:
+        d["use"] = 1 # Using all devices, include GPU and CPU
+        print(d["name"], d["use"])
 
   # This will give ground-truth information about the scene and its objects
   scene_struct = {
@@ -340,7 +356,8 @@ def render_scene(args,
   scene_struct['relationships'] = compute_all_relationships(scene_struct)
   while True:
     try:
-      bpy.ops.render.render(write_still=True)
+      #bpy.ops.render.render(write_still=True)
+      silent_render(write_still=True)
       break
     except Exception as e:
       print(e)
@@ -408,7 +425,7 @@ def add_random_objects(scene_struct, num_objects, args, camera):
           direction_vec = scene_struct['directions'][direction_name]
           assert direction_vec[2] == 0
           margin = dx * direction_vec[0] + dy * direction_vec[1]
-          if 0 < margin < args.margin:
+          if False: #0 < margin < args.margin:
             print(margin, args.margin, direction_name)
             print('BROKEN MARGIN!')
             margins_good = False
@@ -509,8 +526,8 @@ def check_visibility(blender_objects, min_pixels_per_object):
 
   Returns True if all objects are visible and False otherwise.
   """
-  return True
-  f, path = tempfile.mkstemp(suffix='.png')
+  #f, path = tempfile.mkstemp(suffix='.png')
+  path = "../output/shadeless.png"
   object_colors = render_shadeless(blender_objects, path=path)
   img = bpy.data.images.load(path)
   p = list(img.pixels)
@@ -548,37 +565,44 @@ def render_shadeless(blender_objects, path='flat.png'):
     render_args.engine = 'BLENDER_RENDER'
     old_use_antialiasing = render_args.use_antialiasing
     render_args.use_antialiasing = False
-  else:
-    render_args.engine = 'BLENDER_EEVEE'
-    old_use_antialiasing = bpy.context.scene.display.render_aa
-    bpy.context.scene.display.render_aa = "OFF"
-  # Move the lights and ground to layer 2 so they don't render
-  utils.set_layer(bpy.data.objects['Lamp_Key'], 2)
-  utils.set_layer(bpy.data.objects['Lamp_Fill'], 2)
-  utils.set_layer(bpy.data.objects['Lamp_Back'], 2)
-  utils.set_layer(bpy.data.objects['Ground'], 2)
+  # else:
+  #   #render_args.engine = 'BLENDER_EEVEE'
+  #   old_use_antialiasing = bpy.context.scene.display.render_aa
+  #   bpy.context.scene.display.render_aa = "OFF"
+  # # Move the lights and ground to layer 2 so they don't render
+  # utils.set_layer(bpy.data.objects['Lamp_Key'], 2)
+  # utils.set_layer(bpy.data.objects['Lamp_Fill'], 2)
+  # utils.set_layer(bpy.data.objects['Lamp_Back'], 2)
+  # utils.set_layer(bpy.data.objects['Ground'], 2)
+  print([obj.type for obj in bpy.context.scene.objects])
+  print(bpy.context.scene.objects.keys())
+  #lamp.shadow_method = 'NOSHADOW'
 
   # Add random shadeless materials to all objects
-  object_colors = set()
-  old_materials = []
-  for i, obj in enumerate(blender_objects):
-    old_materials.append(obj.data.materials[0])
-    bpy.ops.material.new()
-    mat = bpy.data.materials['Material']
-    mat.name = 'Material_%d' % i
-    while True:
-      r, g, b = [random.random() for _ in range(3)]
-      if (r, g, b) not in object_colors: break
-    object_colors.add((r, g, b))
-    if bpy.app.version < (2, 80, 0):
-      mat.diffuse_color = [r, g, b]
-    else:
-      mat.diffuse_color = [r, g, b, 0]
-    mat.use_shadeless = True
-    obj.data.materials[0] = mat
+  # object_colors = set()
+  # old_materials = []
+  # for i, obj in enumerate(blender_objects):
+  #   old_materials.append(obj.data.materials[0])
+  #   bpy.ops.material.new()
+  #   mat = bpy.data.materials['Material']
+  #   mat.name = 'Material_%d' % i
+  #   while True:
+  #     r, g, b = [random.random() for _ in range(3)]
+  #     if (r, g, b) not in object_colors: break
+  #   object_colors.add((r, g, b))
+  #   if bpy.app.version < (2, 80, 0):
+  #     mat.diffuse_color = [r, g, b]
+  #   else:
+  #     mat.diffuse_color = [r, g, b, 0]
+  #   #mat.use_shadeless = True
+  #   obj.data.materials[0] = mat
 
   # Render the scene
-  bpy.ops.render.render(write_still=True)
+  #bpy.ops.render.render(write_still=True)
+  print("Rendering shadeless.....")
+  silent_render(write_still=True)
+  print("Done!")
+  quit()
 
   # Undo the above; first restore the materials to objects
   for mat, obj in zip(old_materials, blender_objects):

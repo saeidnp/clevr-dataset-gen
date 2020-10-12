@@ -78,12 +78,12 @@ def set_layer(obj, layer_idx):
     obj.layers[layer_idx] = True
     for i in range(len(obj.layers)):
       obj.layers[i] = (i == layer_idx)
-  else:
-    bpy.context.scene.view_layers[layer_idx].use_pass_normal = True
-    bpy.context.scene.view_layers[layer_idx].use_pass_uv = True
-    for i in range(len(bpy.context.scene.view_layers)):
-      bpy.context.scene.view_layers[i].use_pass_normal = (i == layer_idx)
-      bpy.context.scene.view_layers[i].use_pass_uv = (i == layer_idx)
+  # else:
+  #   bpy.context.scene.view_layers[layer_idx].use_pass_normal = True
+  #   bpy.context.scene.view_layers[layer_idx].use_pass_uv = True
+  #   for i in range(len(bpy.context.scene.view_layers)):
+  #     bpy.context.scene.view_layers[i].use_pass_normal = (i == layer_idx)
+  #     bpy.context.scene.view_layers[i].use_pass_uv = (i == layer_idx)
   
 
 
