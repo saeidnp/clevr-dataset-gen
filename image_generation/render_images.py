@@ -9,6 +9,12 @@ from __future__ import print_function
 import math, sys, random, argparse, json, os, tempfile
 from datetime import datetime as dt
 from collections import Counter
+import sys, os
+from tqdm import tqdm
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.getcwd())
+
 
 """
 Renders random scenes using Blender, each with with a random number of objects;
@@ -153,6 +159,7 @@ parser.add_argument('--render_tile_size', default=256, type=int,
          "while larger tile sizes may be optimal for GPU-based rendering.")
 
 def main(args):
+  print(args.__dict__)
   num_digits = 6
   prefix = '%s_%s_' % (args.filename_prefix, args.split)
   img_template = '%s%%0%dd.png' % (prefix, num_digits)
@@ -170,7 +177,7 @@ def main(args):
     os.makedirs(args.output_blend_dir)
   
   all_scene_paths = []
-  for i in range(args.num_images):
+  for i in tqdm(range(args.num_images)):
     img_path = img_template % (i + args.start_idx)
     scene_path = scene_template % (i + args.start_idx)
     all_scene_paths.append(scene_path)
@@ -186,6 +193,8 @@ def main(args):
       output_scene=scene_path,
       output_blendfile=blend_path,
     )
+    print("Image {} stored at {}".format(i, img_path))
+    print("----------------------------------------------------------------")
 
   # After rendering all images, combine the JSON files for each scene into a
   # single JSON file.
@@ -261,7 +270,10 @@ def render_scene(args,
   }
 
   # Put a plane on the ground so we can compute cardinal directions
-  bpy.ops.mesh.primitive_plane_add(radius=5)
+  if bpy.app.version < (2, 80, 0):
+    bpy.ops.mesh.primitive_plane_add(radius=5)
+  else:
+    bpy.ops.mesh.primitive_plane_add(size=5)
   plane = bpy.context.object
 
   def rand(L):
@@ -276,9 +288,14 @@ def render_scene(args,
   # them in the scene structure
   camera = bpy.data.objects['Camera']
   plane_normal = plane.data.vertices[0].normal
-  cam_behind = camera.matrix_world.to_quaternion() * Vector((0, 0, -1))
-  cam_left = camera.matrix_world.to_quaternion() * Vector((-1, 0, 0))
-  cam_up = camera.matrix_world.to_quaternion() * Vector((0, 1, 0))
+  if bpy.app.version < (2, 80, 0):
+    cam_behind = camera.matrix_world.to_quaternion() * Vector((0, 0, -1))
+    cam_left = camera.matrix_world.to_quaternion() * Vector((-1, 0, 0))
+    cam_up = camera.matrix_world.to_quaternion() * Vector((0, 1, 0))
+  else:
+    cam_behind = camera.matrix_world.to_quaternion() @ Vector((0, 0, -1))
+    cam_left = camera.matrix_world.to_quaternion() @ Vector((-1, 0, 0))
+    cam_up = camera.matrix_world.to_quaternion() @ Vector((0, 1, 0))
   plane_behind = (cam_behind - cam_behind.project(plane_normal)).normalized()
   plane_left = (cam_left - cam_left.project(plane_normal)).normalized()
   plane_up = cam_up.project(plane_normal).normalized()
@@ -483,6 +500,7 @@ def check_visibility(blender_objects, min_pixels_per_object):
 
   Returns True if all objects are visible and False otherwise.
   """
+  return True
   f, path = tempfile.mkstemp(suffix='.png')
   object_colors = render_shadeless(blender_objects, path=path)
   img = bpy.data.images.load(path)
@@ -507,16 +525,24 @@ def render_shadeless(blender_objects, path='flat.png'):
   """
   render_args = bpy.context.scene.render
 
+  print('---------------------------------')
   # Cache the render args we are about to clobber
   old_filepath = render_args.filepath
+  # from pydoc import help
+  # print(help(render_args))
   old_engine = render_args.engine
-  old_use_antialiasing = render_args.use_antialiasing
 
   # Override some render settings to have flat shading
   render_args.filepath = path
-  render_args.engine = 'BLENDER_RENDER'
-  render_args.use_antialiasing = False
 
+  if bpy.app.version < (2, 80, 0):
+    render_args.engine = 'BLENDER_RENDER'
+    old_use_antialiasing = render_args.use_antialiasing
+    render_args.use_antialiasing = False
+  else:
+    render_args.engine = 'BLENDER_EEVEE'
+    old_use_antialiasing = bpy.context.scene.display.render_aa
+    bpy.context.scene.display.render_aa = "OFF"
   # Move the lights and ground to layer 2 so they don't render
   utils.set_layer(bpy.data.objects['Lamp_Key'], 2)
   utils.set_layer(bpy.data.objects['Lamp_Fill'], 2)
@@ -535,7 +561,10 @@ def render_shadeless(blender_objects, path='flat.png'):
       r, g, b = [random.random() for _ in range(3)]
       if (r, g, b) not in object_colors: break
     object_colors.add((r, g, b))
-    mat.diffuse_color = [r, g, b]
+    if bpy.app.version < (2, 80, 0):
+      mat.diffuse_color = [r, g, b]
+    else:
+      mat.diffuse_color = [r, g, b, 0]
     mat.use_shadeless = True
     obj.data.materials[0] = mat
 
@@ -555,7 +584,10 @@ def render_shadeless(blender_objects, path='flat.png'):
   # Set the render settings back to what they were
   render_args.filepath = old_filepath
   render_args.engine = old_engine
-  render_args.use_antialiasing = old_use_antialiasing
+  if bpy.app.version < (2, 80, 0):
+    render_args.use_antialiasing = old_use_antialiasing
+  else:
+    bpy.context.scene.display.render_aa = old_use_antialiasing
 
   return object_colors
 

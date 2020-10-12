@@ -36,9 +36,14 @@ def parse_args(parser, argv=None):
 # I wonder if there's a better way to do this?
 def delete_object(obj):
   """ Delete a specified blender object """
-  for o in bpy.data.objects:
-    o.select = False
-  obj.select = True
+  if bpy.app.version < (2, 80, 0):
+    for o in bpy.data.objects:
+      o.select = False
+    obj.select = True
+  else:
+    for o in bpy.data.objects:
+      o.select_set(False)
+    obj.select_set(True)
   bpy.ops.object.delete()
 
 
@@ -69,9 +74,17 @@ def set_layer(obj, layer_idx):
   """ Move an object to a particular layer """
   # Set the target layer to True first because an object must always be on
   # at least one layer.
-  obj.layers[layer_idx] = True
-  for i in range(len(obj.layers)):
-    obj.layers[i] = (i == layer_idx)
+  if bpy.app.version < (2, 80, 0):
+    obj.layers[layer_idx] = True
+    for i in range(len(obj.layers)):
+      obj.layers[i] = (i == layer_idx)
+  else:
+    bpy.context.scene.view_layers[layer_idx].use_pass_normal = True
+    bpy.context.scene.view_layers[layer_idx].use_pass_uv = True
+    for i in range(len(bpy.context.scene.view_layers)):
+      bpy.context.scene.view_layers[i].use_pass_normal = (i == layer_idx)
+      bpy.context.scene.view_layers[i].use_pass_uv = (i == layer_idx)
+  
 
 
 def add_object(object_dir, name, scale, loc, theta=0):
@@ -100,7 +113,12 @@ def add_object(object_dir, name, scale, loc, theta=0):
 
   # Set the new object as active, then rotate, scale, and translate it
   x, y = loc
-  bpy.context.scene.objects.active = bpy.data.objects[new_name]
+  o = bpy.data.objects[new_name]
+  if bpy.app.version < (2, 80, 0):
+    bpy.context.scene.objects.active = o
+  else:
+    o.select_set( state = True, view_layer = bpy.context.view_layer )
+    bpy.context.view_layer.objects.active = o
   bpy.context.object.rotation_euler[2] = theta
   bpy.ops.transform.resize(value=(scale, scale, scale))
   bpy.ops.transform.translate(value=(x, y, scale))
