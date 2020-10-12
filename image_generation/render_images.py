@@ -243,6 +243,7 @@ def render_scene(args,
   render_args.tile_x = args.render_tile_size
   render_args.tile_y = args.render_tile_size
   if args.use_gpu == 1:
+    print("Running on GPU")
     # Blender changed the API for enabling CUDA at some point
     if bpy.app.version < (2, 78, 0):
       bpy.context.user_preferences.system.compute_device_type = 'CUDA'
@@ -250,6 +251,14 @@ def render_scene(args,
     else:
       cycles_prefs = bpy.context.user_preferences.addons['cycles'].preferences
       cycles_prefs.compute_device_type = 'CUDA'
+      for scene in bpy.data.scenes:
+        scene.cycles.device = 'GPU'
+      # get_devices() to let Blender detect GPU device
+      bpy.context.preferences.addons["cycles"].preferences.get_devices()
+      print(bpy.context.preferences.addons["cycles"].preferences.compute_device_type)
+      for d in bpy.context.preferences.addons["cycles"].preferences.devices:
+          d["use"] = 1 # Using all devices, include GPU and CPU
+          print(d["name"], d["use"])
 
   # Some CYCLES-specific stuff
   bpy.data.worlds['World'].cycles.sample_as_light = True
